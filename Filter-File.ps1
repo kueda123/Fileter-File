@@ -18,17 +18,26 @@
     削除リスト（除外対象サーバ名の配列）。BATファイルから指定されます。
 #>
 param(
-    [Parameter(Mandatory=$true, ValueFromRemainingArguments=$true)]
-    [string[]]$InputPaths,
-
     [string]$EncodingType = "UTF8NoBOM",
 
     [string[]]$TargetExtensions = @(".csv", ".conf", ".xml"),
 
     [string[]]$ExcludePattern = @(),
 
-    [string[]]$DeleteList
+    [string[]]$DeleteList,
+
+    [Parameter(Mandatory=$false, ValueFromRemainingArguments=$true)]
+    [string[]]$InputPaths
 )
+
+# BATファイルから渡された配列パラメータを正規化
+# 文字列として渡された場合は配列に変換
+if ($TargetExtensions -is [string]) {
+    $TargetExtensions = $TargetExtensions -split ',' | ForEach-Object { $_.Trim('"', ' ') } | Where-Object { $_ -ne '' }
+}
+if ($ExcludePattern -is [string]) {
+    $ExcludePattern = $ExcludePattern -split ',' | ForEach-Object { $_.Trim('"', ' ') } | Where-Object { $_ -ne '' }
+}
 
 # -------------------------------------------------------------
 # 1. エンコーディング設定
@@ -74,21 +83,15 @@ Write-Host "=================================================="
 # BATファイルから渡されたリストを正規化（大文字化）
 # 文字列として渡された場合は配列に変換
 if ($null -ne $DeleteList) {
-    # 配列の場合、要素が1つでカンマを含む場合は文字列として扱う
-    if ($DeleteList -is [array] -and $DeleteList.Count -eq 1 -and $DeleteList[0] -is [string] -and $DeleteList[0].Contains(',')) {
-        $DeleteList = $DeleteList[0]
-    }
-    # 文字列の場合はカンマで分割
+    # 文字列として扱う値を取得
+    $strValue = $null
     if ($DeleteList -is [string]) {
-        # カンマ区切りの文字列を配列に変換（引用符を除去）
-        # "SERVER1","SERVER2" または SERVER1,SERVER2 のような形式を処理
-        $DeleteList = $DeleteList -split ',' | ForEach-Object { 
-            $_.Trim().Trim('"').Trim() 
-        } | Where-Object { $_ -ne '' }
-    }
-    # 配列の各要素を処理
-    $script:DeleteList = @()
-    if ($null -ne $DeleteList) {
+        $strValue = $DeleteList
+    } elseif ($DeleteList -is [array] -and $DeleteList.Count -eq 1 -and $null -ne $DeleteList[0] -and $DeleteList[0] -is [string]) {
+        $strValue = $DeleteList[0].ToString()
+    } elseif ($DeleteList -is [array] -and $DeleteList.Count -gt 0) {
+        # 既に配列の場合はそのまま処理
+        $script:DeleteList = @()
         foreach ($item in $DeleteList) {
             if ($null -ne $item) {
                 $trimmed = $item.ToString().Trim().ToUpper()
@@ -97,9 +100,32 @@ if ($null -ne $DeleteList) {
                 }
             }
         }
+        if ($script:DeleteList.Count -gt 0) {
+            Write-Host " 除外リスト       : $($script:DeleteList -join ', ')" -ForegroundColor Cyan
+        } else {
+            $script:DeleteList = @()
+        }
+        return
     }
-    if ($script:DeleteList.Count -gt 0) {
-        Write-Host " 除外リスト       : $($script:DeleteList -join ', ')" -ForegroundColor Cyan
+    
+    # 文字列の場合はカンマで分割
+    if ($null -ne $strValue) {
+        $strValue = $strValue.Trim()
+        # カンマ区切りの文字列を配列に変換（引用符を除去）
+        # "SERVER1","SERVER2" または SERVER1,SERVER2 のような形式を処理
+        $splitResult = $strValue -split ','
+        $script:DeleteList = @()
+        foreach ($item in $splitResult) {
+            $trimmed = $item.Trim().Trim('"').Trim().ToUpper()
+            if ($trimmed -ne '') {
+                $script:DeleteList += $trimmed
+            }
+        }
+        if ($script:DeleteList.Count -gt 0) {
+            Write-Host " 除外リスト       : $($script:DeleteList -join ', ')" -ForegroundColor Cyan
+        } else {
+            $script:DeleteList = @()
+        }
     } else {
         $script:DeleteList = @()
     }
@@ -151,7 +177,6 @@ function Process-SingleFile {
 
         $lineCount = 0
         $excludedCount = 0
-        Write-Host " [DeleteList Count: $($script:DeleteList.Count), Type: $($script:DeleteList.GetType().Name), Content: $($script:DeleteList -join '|')]" -ForegroundColor Magenta -NoNewline
         while ($true) {
             $line = $sr.ReadLine()
             if ($null -eq $line) { break }

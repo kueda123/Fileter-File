@@ -33,7 +33,7 @@ REM 除外リストファイルを読み込んで配列として作成
 set "DELETE_LIST="
 set "LIST_FILE=%~dp0%DELETE_LIST_FILE%"
 if exist "!LIST_FILE!" (
-    REM 専用のPowerShellスクリプトを使用
+    REM 専用のPowerShellスクリプトを使用してリストを作成
     for /f "delims=" %%i in ('powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0read_delete_list.ps1" -FilePath "!LIST_FILE!"') do (
         set "DELETE_LIST=%%i"
     )
@@ -46,12 +46,11 @@ if "!DELETE_LIST!"=="" (
       -ExcludePattern %EXCLUDE_PATTERN% ^
       %*
 ) else (
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File %PS_SCRIPT% ^
-      -EncodingType %ENCODING% ^
-      -TargetExtensions %TARGET_EXTS% ^
-      -ExcludePattern %EXCLUDE_PATTERN% ^
-      -DeleteList "!DELETE_LIST!" ^
-      -InputPaths %*
+    REM DeleteListを一時ファイルに書き込んでから実行
+    set "TEMP_DELETE_LIST=%TEMP%\delete_list_%RANDOM%.txt"
+    echo !DELETE_LIST! > "!TEMP_DELETE_LIST!"
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$deleteListContent = Get-Content '!TEMP_DELETE_LIST!' -Raw; & %PS_SCRIPT% -EncodingType %ENCODING% -TargetExtensions %TARGET_EXTS% -ExcludePattern %EXCLUDE_PATTERN% -DeleteList $deleteListContent -InputPaths '%*'"
+    del "!TEMP_DELETE_LIST!" 2>nul
 )
 
 if %ERRORLEVEL% NEQ 0 (
