@@ -46,7 +46,12 @@ if "!DELETE_LIST!"=="" (
       -ExcludePattern %EXCLUDE_PATTERN% ^
       %*
 ) else (
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& %PS_SCRIPT% -EncodingType %ENCODING% -TargetExtensions %TARGET_EXTS% -ExcludePattern %EXCLUDE_PATTERN% -DeleteList '!DELETE_LIST!' -InputPaths '%*'"
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File %PS_SCRIPT% ^
+      -EncodingType %ENCODING% ^
+      -TargetExtensions %TARGET_EXTS% ^
+      -ExcludePattern %EXCLUDE_PATTERN% ^
+      -DeleteList "!DELETE_LIST!" ^
+      -InputPaths %*
 )
 
 if %ERRORLEVEL% NEQ 0 (

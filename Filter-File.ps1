@@ -56,13 +56,15 @@ switch ($EncodingType.ToUpper()) {
 }
 
 # 拡張子の正規化（比較用）
-$validExts = $TargetExtensions | ForEach-Object { $_.Trim().ToLower() }
+$script:validExts = $TargetExtensions | ForEach-Object { $_.Trim().ToLower() }
+$script:ExcludePattern = $ExcludePattern
+$script:encObj = $encObj
 
 Write-Host "=================================================="
 Write-Host " エンコーディング : $encNameDisplay"
-Write-Host " 対象拡張子       : $($validExts -join ', ')"
-if ($ExcludePattern.Count -gt 0) {
-    Write-Host " 除外パターン     : $($ExcludePattern -join ', ')"
+Write-Host " 対象拡張子       : $($script:validExts -join ', ')"
+if ($script:ExcludePattern.Count -gt 0) {
+    Write-Host " 除外パターン     : $($script:ExcludePattern -join ', ')"
 }
 Write-Host "=================================================="
 
@@ -72,18 +74,37 @@ Write-Host "=================================================="
 # BATファイルから渡されたリストを正規化（大文字化）
 # 文字列として渡された場合は配列に変換
 if ($null -ne $DeleteList) {
+    # 配列の場合、要素が1つでカンマを含む場合は文字列として扱う
+    if ($DeleteList -is [array] -and $DeleteList.Count -eq 1 -and $DeleteList[0] -is [string] -and $DeleteList[0].Contains(',')) {
+        $DeleteList = $DeleteList[0]
+    }
+    # 文字列の場合はカンマで分割
     if ($DeleteList -is [string]) {
         # カンマ区切りの文字列を配列に変換（引用符を除去）
-        $DeleteList = $DeleteList -split ',' | ForEach-Object { $_.Trim('"', ' ') } | Where-Object { $_ -ne '' }
+        # "SERVER1","SERVER2" または SERVER1,SERVER2 のような形式を処理
+        $DeleteList = $DeleteList -split ',' | ForEach-Object { 
+            $_.Trim().Trim('"').Trim() 
+        } | Where-Object { $_ -ne '' }
     }
-    if ($DeleteList.Count -gt 0) {
-        $DeleteList = $DeleteList | ForEach-Object { $_.Trim().ToUpper() }
-        Write-Host " 除外リスト       : $($DeleteList -join ', ')" -ForegroundColor Cyan
+    # 配列の各要素を処理
+    $script:DeleteList = @()
+    if ($null -ne $DeleteList) {
+        foreach ($item in $DeleteList) {
+            if ($null -ne $item) {
+                $trimmed = $item.ToString().Trim().ToUpper()
+                if ($trimmed -ne '') {
+                    $script:DeleteList += $trimmed
+                }
+            }
+        }
+    }
+    if ($script:DeleteList.Count -gt 0) {
+        Write-Host " 除外リスト       : $($script:DeleteList -join ', ')" -ForegroundColor Cyan
     } else {
-        $DeleteList = @()
+        $script:DeleteList = @()
     }
 } else {
-    $DeleteList = @()
+    $script:DeleteList = @()
 }
 
 # -------------------------------------------------------------
@@ -96,13 +117,13 @@ function Process-SingleFile {
     $ext      = [System.IO.Path]::GetExtension($TargetFile).ToLower()
 
     # ■ ガード処理 1: 拡張子ホワイトリスト
-    if ($validExts -notcontains $ext) {
+    if ($script:validExts -notcontains $ext) {
         Write-Warning "スキップ [対象外拡張子]: $fileName"
         return
     }
 
     # ■ ガード処理 2: 除外パターン (ブラックリスト)
-    foreach ($ptn in $ExcludePattern) {
+    foreach ($ptn in $script:ExcludePattern) {
         if ($fileName -like $ptn) {
             Write-Warning "スキップ [除外パターン]: $fileName (一致: $ptn)"
             return
@@ -124,23 +145,37 @@ function Process-SingleFile {
     try {
         Write-Host "処理中: $fileName ..." -NoNewline
         
-        $sr = New-Object System.IO.StreamReader($TargetFile, $encObj)
-        $sw = New-Object System.IO.StreamWriter($outputFile, $false, $encObj)
+        $sr = New-Object System.IO.StreamReader($TargetFile, $script:encObj)
+        $sw = New-Object System.IO.StreamWriter($outputFile, $false, $script:encObj)
         $sw.NewLine = "`n" # LF固定
 
+        $lineCount = 0
+        $excludedCount = 0
+        Write-Host " [DeleteList Count: $($script:DeleteList.Count), Type: $($script:DeleteList.GetType().Name), Content: $($script:DeleteList -join '|')]" -ForegroundColor Magenta -NoNewline
         while ($true) {
             $line = $sr.ReadLine()
             if ($null -eq $line) { break }
             
+            $lineCount++
             $u = $line.ToUpper()
             $matched = $false
-            if ($null -ne $DeleteList -and $DeleteList.Count -gt 0) {
-                foreach ($word in $DeleteList) {
+            if ($null -ne $script:DeleteList -and $script:DeleteList.Count -gt 0) {
+                foreach ($word in $script:DeleteList) {
                     if ([string]::IsNullOrWhiteSpace($word)) { continue }
-                    if ($u -like "*$word*") { $matched = $true; break }
+                    $pattern = "*$word*"
+                    if ($u -like $pattern) { 
+                        $matched = $true
+                        $excludedCount++
+                        break 
+                    }
                 }
             }
-            if (-not $matched) { $sw.WriteLine($line) }
+            if (-not $matched) { 
+                $sw.WriteLine($line) 
+            }
+        }
+        if ($excludedCount -gt 0) {
+            Write-Host " ($excludedCount 行を除外)" -ForegroundColor Yellow -NoNewline
         }
         Write-Host " OK" -ForegroundColor Green
     }
@@ -165,7 +200,7 @@ foreach ($pathStr in $InputPaths) {
         # フォルダの場合: 対象拡張子にマッチするファイルのみ抽出して渡す
         # ※除外パターンのチェックは Process-SingleFile 内で行う
         $files = Get-ChildItem -Path $item.FullName -File | 
-                 Where-Object { $validExts -contains $_.Extension.ToLower() }
+                 Where-Object { $script:validExts -contains $_.Extension.ToLower() }
         
         foreach ($f in $files) {
             Process-SingleFile -TargetFile $f.FullName
