@@ -15,7 +15,7 @@
 .PARAMETER ExcludePattern
     処理から除外するファイル名のパターン（ブラックリスト）。例: "*_backup.*", "test_*"
 .PARAMETER DeleteList
-    削除リスト
+    削除リスト（除外対象サーバ名の配列）。BATファイルから指定されます。
 #>
 param(
     [Parameter(Mandatory=$true, ValueFromRemainingArguments=$true)]
@@ -67,18 +67,23 @@ if ($ExcludePattern.Count -gt 0) {
 Write-Host "=================================================="
 
 # -------------------------------------------------------------
-# 2. 共通設定（削除リスト読み込み）
+# 2. 共通設定（削除リスト正規化）
 # -------------------------------------------------------------
-$ScriptBase = $PSScriptRoot
-if ($null -eq $DeleteList -or $DeleteList.Count -eq 0) {
-    $dlPath = Join-Path $ScriptBase "delete_servers.txt"
-    if (Test-Path $dlPath) {
-        $DeleteList = Get-Content $dlPath -Encoding UTF8 | 
-            Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
-            ForEach-Object { $_.Trim().ToUpper() }
+# BATファイルから渡されたリストを正規化（大文字化）
+# 文字列として渡された場合は配列に変換
+if ($null -ne $DeleteList) {
+    if ($DeleteList -is [string]) {
+        # カンマ区切りの文字列を配列に変換（引用符を除去）
+        $DeleteList = $DeleteList -split ',' | ForEach-Object { $_.Trim('"', ' ') } | Where-Object { $_ -ne '' }
+    }
+    if ($DeleteList.Count -gt 0) {
+        $DeleteList = $DeleteList | ForEach-Object { $_.Trim().ToUpper() }
+        Write-Host " 除外リスト       : $($DeleteList -join ', ')" -ForegroundColor Cyan
     } else {
         $DeleteList = @()
     }
+} else {
+    $DeleteList = @()
 }
 
 # -------------------------------------------------------------
@@ -129,9 +134,11 @@ function Process-SingleFile {
             
             $u = $line.ToUpper()
             $matched = $false
-            foreach ($word in $DeleteList) {
-                if ([string]::IsNullOrWhiteSpace($word)) { continue }
-                if ($u -like "*$word*") { $matched = $true; break }
+            if ($null -ne $DeleteList -and $DeleteList.Count -gt 0) {
+                foreach ($word in $DeleteList) {
+                    if ([string]::IsNullOrWhiteSpace($word)) { continue }
+                    if ($u -like "*$word*") { $matched = $true; break }
+                }
             }
             if (-not $matched) { $sw.WriteLine($line) }
         }
