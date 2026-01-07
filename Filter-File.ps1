@@ -128,7 +128,6 @@ if ($null -ne $DeleteList) {
         } else {
             $script:DeleteList = @()
         }
-        return
     }
     
     # 文字列の場合はカンマで分割
@@ -165,6 +164,16 @@ function Process-SingleFile {
     $fileName = [System.IO.Path]::GetFileName($TargetFile)
     $ext      = [System.IO.Path]::GetExtension($TargetFile).ToLower()
 
+    # デバッグログ: 処理開始
+    Write-Host "[DEBUG] Process-SingleFile開始: $TargetFile" -ForegroundColor Gray
+    Write-Host "[DEBUG] ファイル名: $fileName, 拡張子: $ext" -ForegroundColor Gray
+    Write-Host "[DEBUG] 処理前 - 元ファイル存在確認: $(Test-Path $TargetFile)" -ForegroundColor Gray
+    if (Test-Path $TargetFile) {
+        $fileInfo = Get-Item $TargetFile
+        Write-Host "[DEBUG] 処理前 - 元ファイルサイズ: $($fileInfo.Length) bytes" -ForegroundColor Gray
+        Write-Host "[DEBUG] 処理前 - 元ファイルフルパス: $($fileInfo.FullName)" -ForegroundColor Gray
+    }
+
     # ■ ガード処理 1: 拡張子ホワイトリスト
     if ($script:validExts -notcontains $ext) {
         Write-Warning "スキップ [対象外拡張子]: $fileName"
@@ -184,7 +193,13 @@ function Process-SingleFile {
     $outputDir = Join-Path $parentDir "output"
     $outputFile = Join-Path $outputDir $fileName
 
+    # デバッグログ: パス確認
+    Write-Host "[DEBUG] 元ファイルパス: $TargetFile" -ForegroundColor Gray
+    Write-Host "[DEBUG] 出力ファイルパス: $outputFile" -ForegroundColor Gray
+    Write-Host "[DEBUG] パスが同じか: $($TargetFile -eq $outputFile)" -ForegroundColor Gray
+
     if (-not (Test-Path $outputDir)) {
+        Write-Host "[DEBUG] 出力ディレクトリ作成: $outputDir" -ForegroundColor Gray
         New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
     }
 
@@ -194,8 +209,14 @@ function Process-SingleFile {
     try {
         Write-Host "処理中: $fileName ..." -NoNewline
         
+        Write-Host "[DEBUG] StreamReader作成前 - 元ファイル存在: $(Test-Path $TargetFile)" -ForegroundColor Gray
         $sr = New-Object System.IO.StreamReader($TargetFile, $script:encObj)
+        Write-Host "[DEBUG] StreamReader作成後 - 元ファイル存在: $(Test-Path $TargetFile)" -ForegroundColor Gray
+        
+        Write-Host "[DEBUG] StreamWriter作成前 - 出力ファイル存在: $(Test-Path $outputFile)" -ForegroundColor Gray
         $sw = New-Object System.IO.StreamWriter($outputFile, $false, $script:encObj)
+        Write-Host "[DEBUG] StreamWriter作成後 - 出力ファイル存在: $(Test-Path $outputFile)" -ForegroundColor Gray
+        Write-Host "[DEBUG] StreamWriter作成後 - 元ファイル存在: $(Test-Path $TargetFile)" -ForegroundColor Gray
         $sw.NewLine = "`n" # LF固定
 
         $lineCount = 0
@@ -226,23 +247,56 @@ function Process-SingleFile {
             Write-Host " ($excludedCount 行を除外)" -ForegroundColor Yellow -NoNewline
         }
         Write-Host " OK" -ForegroundColor Green
+        
+        # デバッグログ: 処理完了後
+        Write-Host "[DEBUG] 処理完了後 - 元ファイル存在: $(Test-Path $TargetFile)" -ForegroundColor Gray
+        if (Test-Path $TargetFile) {
+            $fileInfo = Get-Item $TargetFile
+            Write-Host "[DEBUG] 処理完了後 - 元ファイルサイズ: $($fileInfo.Length) bytes" -ForegroundColor Gray
+        }
+        Write-Host "[DEBUG] 処理完了後 - 出力ファイル存在: $(Test-Path $outputFile)" -ForegroundColor Gray
+        if (Test-Path $outputFile) {
+            $outputInfo = Get-Item $outputFile
+            Write-Host "[DEBUG] 処理完了後 - 出力ファイルサイズ: $($outputInfo.Length) bytes" -ForegroundColor Gray
+        }
     }
     catch {
         Write-Host " 失敗 ($($_))" -ForegroundColor Red
+        Write-Host "[DEBUG] エラー発生時 - 元ファイル存在: $(Test-Path $TargetFile)" -ForegroundColor Red
+        Write-Host "[DEBUG] エラー詳細: $_" -ForegroundColor Red
+        Write-Host "[DEBUG] エラー位置: $($_.InvocationInfo.ScriptLineNumber)" -ForegroundColor Red
     }
     finally {
-        if ($sw) { $sw.Dispose() }
-        if ($sr) { $sr.Dispose() }
+        Write-Host "[DEBUG] Finally開始 - 元ファイル存在: $(Test-Path $TargetFile)" -ForegroundColor Gray
+        if ($sw) { 
+            Write-Host "[DEBUG] StreamWriterをDispose" -ForegroundColor Gray
+            $sw.Dispose() 
+        }
+        if ($sr) { 
+            Write-Host "[DEBUG] StreamReaderをDispose" -ForegroundColor Gray
+            $sr.Dispose() 
+        }
+        Write-Host "[DEBUG] Finally終了 - 元ファイル存在: $(Test-Path $TargetFile)" -ForegroundColor Gray
+        if (Test-Path $TargetFile) {
+            $fileInfo = Get-Item $TargetFile
+            Write-Host "[DEBUG] Finally終了 - 元ファイルサイズ: $($fileInfo.Length) bytes" -ForegroundColor Gray
+        }
     }
 }
 
 # -------------------------------------------------------------
 # 4. メインループ
 # -------------------------------------------------------------
+Write-Host "[DEBUG] メインループ開始 - InputPaths数: $($InputPaths.Count)" -ForegroundColor Gray
 foreach ($pathStr in $InputPaths) {
-    if (-not (Test-Path $pathStr)) { continue }
+    Write-Host "[DEBUG] 処理対象パス: $pathStr" -ForegroundColor Gray
+    if (-not (Test-Path $pathStr)) { 
+        Write-Host "[DEBUG] パスが存在しません: $pathStr" -ForegroundColor Yellow
+        continue 
+    }
     
     $item = Get-Item $pathStr
+    Write-Host "[DEBUG] アイテム取得: $($item.FullName), 種類: $($item.PSIsContainer)" -ForegroundColor Gray
     
     if ($item.PSIsContainer) {
         # フォルダの場合: 対象拡張子にマッチするファイルのみ抽出して渡す
