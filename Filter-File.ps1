@@ -33,10 +33,33 @@ param(
 # BATファイルから渡された配列パラメータを正規化
 # 文字列として渡された場合は配列に変換
 if ($TargetExtensions -is [string]) {
+    # カンマ区切りの文字列を配列に変換（引用符を除去）
     $TargetExtensions = $TargetExtensions -split ',' | ForEach-Object { $_.Trim('"', ' ') } | Where-Object { $_ -ne '' }
+} elseif ($TargetExtensions -is [array] -and $TargetExtensions.Count -gt 0) {
+    # 配列の場合、各要素を処理
+    $tempArray = @()
+    foreach ($item in $TargetExtensions) {
+        if ($item -is [string] -and $item.Contains(',')) {
+            # カンマを含む場合は分割
+            $splitItems = $item -split ',' | ForEach-Object { $_.Trim('"', ' ') } | Where-Object { $_ -ne '' }
+            $tempArray += $splitItems
+        } elseif ($item -is [string]) {
+            $trimmed = $item.Trim('"', ' ')
+            if ($trimmed -ne '') {
+                $tempArray += $trimmed
+            }
+        }
+    }
+    if ($tempArray.Count -gt 0) {
+        $TargetExtensions = $tempArray
+    }
 }
 if ($ExcludePattern -is [string]) {
+    # カンマ区切りの文字列を配列に変換（引用符を除去）
     $ExcludePattern = $ExcludePattern -split ',' | ForEach-Object { $_.Trim('"', ' ') } | Where-Object { $_ -ne '' }
+} elseif ($ExcludePattern -is [array] -and $ExcludePattern.Count -eq 1 -and $ExcludePattern[0] -is [string] -and $ExcludePattern[0].Contains(',')) {
+    # 配列の要素が1つでカンマを含む場合は文字列として扱う
+    $ExcludePattern = $ExcludePattern[0] -split ',' | ForEach-Object { $_.Trim('"', ' ') } | Where-Object { $_ -ne '' }
 }
 
 # -------------------------------------------------------------

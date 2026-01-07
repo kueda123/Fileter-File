@@ -49,7 +49,15 @@ if "!DELETE_LIST!"=="" (
     REM DeleteListを一時ファイルに書き込んでから実行
     set "TEMP_DELETE_LIST=%TEMP%\delete_list_%RANDOM%.txt"
     echo !DELETE_LIST! > "!TEMP_DELETE_LIST!"
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$deleteListContent = Get-Content '!TEMP_DELETE_LIST!' -Raw; & %PS_SCRIPT% -EncodingType %ENCODING% -TargetExtensions %TARGET_EXTS% -ExcludePattern %EXCLUDE_PATTERN% -DeleteList $deleteListContent -InputPaths '%*'"
+    REM 複数ファイルを処理するため、-Commandオプションを使用
+    REM %*を個別の引数として処理
+    set "INPUT_PATHS="
+    for %%a in (%*) do (
+        set "INPUT_PATHS=!INPUT_PATHS!,'%%a'"
+    )
+    REM 先頭のカンマを除去
+    set "INPUT_PATHS=!INPUT_PATHS:~1!"
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$deleteListContent = Get-Content '!TEMP_DELETE_LIST!' -Raw; $inputPaths = @(!INPUT_PATHS!); & %PS_SCRIPT% -EncodingType %ENCODING% -TargetExtensions %TARGET_EXTS% -ExcludePattern %EXCLUDE_PATTERN% -DeleteList $deleteListContent -InputPaths $inputPaths"
     del "!TEMP_DELETE_LIST!" 2>nul
 )
 
