@@ -1,0 +1,11 @@
+==================================================
+ エンコーディング : UTF-8 (No BOM)
+ 対象拡張子       : .csv, .conf, .xml, .properties, .txt
+ 除外パターン     : *_backup.*, master_*, *.old
+==================================================
+ 除外リスト       : SERVER1, SERVER2, SERVER3, TEST-SERVER, PROD-SERVER
+[INFO] 処理対象ファイル数: 2
+[INFO]   - D:\github\kueda123\Fileter-File\test_input_lf.conf
+[INFO]   - D:\github\kueda123\Fileter-File\test_input_lf.csv
+処理中: test_input_lf.conf ... (5 行を除外) OK
+処理中: test_input_lf.csv ... (5 行を除外) OK
