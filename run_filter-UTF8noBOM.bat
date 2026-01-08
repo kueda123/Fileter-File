@@ -11,7 +11,7 @@ set LINE_ENDING=LF
 set TARGET_EXTS=".csv,.conf,.xml,.properties,.txt"
 set EXCLUDE_PATTERN="*_backup.*,master_*,*.old"
 set DELETE_LIST_FILE=delete_servers.txt
-set KEEP_LOG_ON_SUCCESS=1
+set KEEP_LOG_ON_SUCCESS=0
 
 REM 2. カレントディレクトリへの移動
 cd /d "%~dp0"
@@ -63,7 +63,7 @@ if !ERRORLEVEL! EQU 0 (
     type "!LOG_FILE!"
     echo.
     echo [WARN] Warnings detected. See log above.
-    goto :END
+    goto :END_PAUSE
 )
 
 if "!KEEP_LOG_ON_SUCCESS!"=="1" (
@@ -74,7 +74,14 @@ if "!KEEP_LOG_ON_SUCCESS!"=="1" (
     del "!LOG_FILE!" 2>nul
 )
 
-goto :END
+REM --------------------------------------------------------
+REM  成功時：5秒後に自動クローズ
+REM --------------------------------------------------------
+echo.
+echo [INFO] Finished successfully.
+echo        This window will close in 5 seconds...
+timeout /t 5 >nul
+exit /b
 
 REM ========================================================
 REM  エラーハンドリング
@@ -112,7 +119,7 @@ echo [ERROR] Script Failed. See log above.
 pause
 exit /b
 
-:END
+:END_PAUSE
 echo.
-echo [INFO] Finished.
+echo [INFO] Finished with warnings/errors.
 pause

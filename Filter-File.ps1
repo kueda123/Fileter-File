@@ -5,6 +5,7 @@
     BATファイルからの呼び出しを想定。
     - 入力ファイルの読み込み (Get-Content)
     - 除外リストに基づく行削除
+    - outputフォルダの作成と出力
     - 指定エンコード (UTF8NoBOM, ShiftJIS, UTF8BOM) での書き込み
     - 指定改行コード (LF, CRLF) での書き込み
 #>
@@ -117,7 +118,7 @@ try {
             foreach ($kw in $deleteKeywords) {
                 if ($line -like "*$kw*") {
                     $shouldDelete = $true
-                    # Write-Host "  [DEL] $line" # デバッグ用（大量に出るので通常はコメントアウト）
+                    # Write-Host "  [DEL] $line" # デバッグ用
                     break
                 }
             }
@@ -127,20 +128,37 @@ try {
         }
 
         # 結合して書き込み用文字列を作成
-        # 注意: 配列が空の場合や1行の場合の処理
         if ($filteredContent.Count -gt 0) {
             $textToWrite = $filteredContent -join $newLineChar
-            # 最終行にも改行を入れるか？（通常Linux設定ファイル等は末尾改行が望ましい）
+            # 最終行にも改行を入れる
             $textToWrite += $newLineChar
         } else {
             $textToWrite = ""
         }
 
-        # 書き込み (System.IO.Fileを使用することでエンコードと改行を厳密に制御)
+        # -----------------------------------------------------
+        # 出力先ディレクトリの構築 (カレント/output)
+        # -----------------------------------------------------
+        $outputDir = Join-Path $file.DirectoryName "output"
+        if (-not (Test-Path $outputDir)) {
+            New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+        }
+
+        # 出力ファイルパスの構築
+        $outputPath = Join-Path $outputDir $file.Name
+
+        # 安全策：同名ファイルが存在する場合はスキップ (README仕様)
+        if (Test-Path $outputPath) {
+            Write-Warning "Output file already exists. Skipped: $($file.Name)"
+            continue
+        }
+
+        # 書き込み (System.IO.Fileを使用)
         try {
-            [System.IO.File]::WriteAllText($file.FullName, $textToWrite, $encObj)
+            [System.IO.File]::WriteAllText($outputPath, $textToWrite, $encObj)
+            Write-Host "  -> Exported to: output\$($file.Name)"
         } catch {
-            Write-Error "Failed to write file: $($file.FullName) - $($_.Exception.Message)"
+            Write-Error "Failed to write file: $outputPath - $($_.Exception.Message)"
             continue
         }
     }
