@@ -1,8 +1,10 @@
 # run_filter-UTF8noBOM.bat リファレンス
+
 ## 1. 概要
 
 本バッチファイルは、PowerShellスクリプト Filter-File.ps1 のラッパープログラムです。
 バッチファイル内の「設定エリア」の属性値を変更することで、出力ファイルのエンコードや改行コードを制御し、様々な用途（Linux用、Excel用など）に対応させることができます。
+
 ## 2. 標準設定（Config）とパラメータ解説
 
 以下は、配布時の標準ファイル run_filter-UTF8noBOM.bat に記述されている設定値です。
@@ -13,7 +15,7 @@ set LINE_ENDING=LF
 set TARGET_EXTS=".csv,.conf,.xml,.properties,.txt"
 set EXCLUDE_PATTERN="*_backup.*,master_*,*.old"
 set DELETE_LIST_FILE=delete_servers.txt
-set KEEP_LOG_ON_SUCCESS=1
+set KEEP_LOG_ON_SUCCESS=0
 ```
 
 ### 説明
@@ -24,12 +26,35 @@ set KEEP_LOG_ON_SUCCESS=1
 |ENCODING|出力ファイルの文字コードとBOMの有無を指定します。<br>- UTF8NoBOM: UTF-8 (BOMなし)<br>- UTF8BOM: UTF-8 (BOMあり)<br>- ShiftJIS: Shift-JIS (BOMなし) |
 |LINE_ENDING|改行コードを指定します。<br>- LF: Linux/Unix系 (標準) <br>- CRLF: Windows系|
 |TARGET_EXTS|処理対象とするファイルの拡張子（カンマ区切り）。|
-|EXCLUDE_PATTERN|処理から除外するファイル名のパターン。|
+|EXCLUDE_PATTERN|処理から除外するファイル名のパターン。<br>例: *_backup.*|
 |DELETE_LIST_FILE|削除対象リストのファイル名。|
-|KEEP_LOG_ON_SUCCESS|処理成功時にログを残すか (1:残す, 0:削除)。|
+|KEEP_LOG_ON_SUCCESS|処理成功時にログを残すか (0:自動削除, 1:残す)。|
 
 
-## 3. 用途別設定ガイド
+## 3. 技術仕様
+
+### 処理ロジック (高速化)
+
+大量の削除キーワードを高速に処理するため、内部でリストを正規表現 (Regex) のOR条件にコンパイルして一括判定を行っています。
+
+これにより、ファイル内の行データに対するキーワード検索（delete_servers.txt の内容に基づく検索）が劇的に高速化されます。
+
+ファイル名の除外判定（EXCLUDE_PATTERN）には、通常のワイルドカードマッチングが使用されます。
+
+### ステータス判定
+
+バッチファイルは PowerShell からの終了コード (Exit Code) を受け取り、動作を変化させます。
+|Exit Code|状態|動作|
+ :--- | :--- | :--- |
+|0|正常終了|ログを削除(設定次第)し、5秒後にウィンドウを閉じる。|
+|1|エラー|スクリプト実行エラー。<br>ウィンドウは閉じずに一時停止する|
+|2|	警告|outputファイル重複、または削除リストが空の場合。<br>ウィンドウは閉じずに一時停止する。|
+
+### UTF-8ログ対応
+ログファイルは「UTF-8 (BOM付き)」で出力されます。これにより、特殊文字や日本語が含まれていても文字化けせずに確認が可能です
+
+
+## 4. 用途別設定ガイド
 
 ### ① 標準設定：Linux / Webサーバー / 開発用
 
