@@ -1,4 +1,4 @@
-hostname,ip,status
+﻿hostname,ip,status
 SERVER1.example.com,192.168.1.10,active
 server2.example.com,192.168.1.20,active
 web-server.example.com,192.168.1.40,active
