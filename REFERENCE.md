@@ -9,13 +9,13 @@
 
 以下は、配布時の標準ファイル run_filter-UTF8noBOM.bat に記述されている設定値です。
 ```batch
-REM 1. 設定エリア
-set ENCODING=UTF8NoBOM
-set LINE_ENDING=LF
-set TARGET_EXTS=".csv,.conf,.xml,.properties,.txt"
-set EXCLUDE_PATTERN="*_backup.*,master_*,*.old"
-set DELETE_LIST_FILE=delete_servers.txt
-set KEEP_LOG_ON_SUCCESS=0
+REM --- 1. CONFIGURATION (設定) ---
+set "ENCODING=UTF8NoBOM"
+set "LINE_ENDING=LF"
+set "TARGET_EXTS=.csv,.conf,.xml,.properties,.txt"
+set "EXCLUDE_PATTERN=*_backup.*,master_*,*.old"
+set "DELETE_LIST_FILE=delete_servers.txt"
+set "KEEP_LOG_ON_SUCCESS=0"
 ```
 
 ### 説明
@@ -62,8 +62,8 @@ Linux環境での利用を前提とした標準設定です。
     • 設定値:
 
 ```batch
-set ENCODING=UTF8NoBOM
-set LINE_ENDING=LF
+set "ENCODING=UTF8NoBOM"
+set "LINE_ENDING=LF"
 ```
 
     • 用途:
@@ -79,8 +79,8 @@ WindowsアプリやExcelでの利用を想定した設定です。
 （推奨ファイル名: run_filter-SJIS.bat）
     • 設定値:
 ```batch
-set ENCODING=ShiftJIS
-set LINE_ENDING=CRLF
+set "ENCODING=ShiftJIS"
+set "LINE_ENDING=CRLF"
 ```
 
     • 用途:
@@ -96,8 +96,8 @@ BOMを必要とする特定のアプリケーション用です。
 （推奨ファイル名: run_filter-UTF8BOM.bat）
     • 設定値:
 ```batch
-set ENCODING=UTF8BOM
-set LINE_ENDING=CRLF
+set "ENCODING=UTF8BOM"
+set "LINE_ENDING=CRLF"
 ```
 
     • 用途:

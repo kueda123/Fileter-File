@@ -1,0 +1,8 @@
+{
+  // エクスプローラーの位置を左側に固定
+  "workbench.panel.defaultLocation": "bottom",
+  "workbench.sideBar.location": "left",
+  // Agentsリストペインを非表示にする試行
+  "workbench.activityBar.visible": true,
+  "workbench.view.alwaysShowHeaderActions": false
+}
