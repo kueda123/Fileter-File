@@ -94,7 +94,7 @@ try {
     }
 
     if ($targetFiles.Count -eq 0) {
-        Write-Warning "No target files found to process."
+        Write-Host "[WARNING] No target files found to process."
         exit 0
     }
 
@@ -149,7 +149,8 @@ try {
 
         # 安全策：同名ファイルが存在する場合はスキップ (README仕様)
         if (Test-Path $outputPath) {
-            Write-Warning "Output file already exists. Skipped: $($file.Name)"
+            # バッチ側で検知できるよう [WARNING] タグ付きの Write-Host に変更
+            Write-Host "[WARNING] Output file already exists. Skipped: $($file.Name)"
             continue
         }
 
