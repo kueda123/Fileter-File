@@ -1,177 +1,240 @@
 <#
 .SYNOPSIS
-    ドラッグ＆ドロップ対応：ファイルフィルタリングツール
-
+    指定された削除リストに基づいて行を除外し、指定のエンコード・改行コードで保存するスクリプト
 .DESCRIPTION
-    バッチファイルから指定された「拡張子ホワイトリスト」と「除外ファイルパターン」に基づき、
-    安全にテキスト処理を行います。指定外の拡張子やバイナリファイルはブロックします。
-
-.PARAMETER InputPaths
-    処理対象のファイルパスまたはフォルダパス
-.PARAMETER EncodingType
-    文字コード指定 ("UTF8NoBOM", "UTF8BOM", "Shift_JIS")
-.PARAMETER TargetExtensions
-    処理を許可する拡張子のリスト（ホワイトリスト）。例: ".csv", ".conf"
-.PARAMETER ExcludePattern
-    処理から除外するファイル名のパターン（ブラックリスト）。例: "*_backup.*", "test_*"
-.PARAMETER DeleteList
-    削除リスト（除外対象サーバ名の配列）。BATファイルから指定されます。
+    BATファイルからの呼び出しを想定。
+    - 正規表現による高速フィルタリング
+    - outputフォルダへの自動出力
+    - 終了コードによるBAT側へのステータス通知 (0:成功, 1:エラー, 2:警告)
 #>
 param(
-    [Parameter(Mandatory=$true, ValueFromRemainingArguments=$true)]
-    [string[]]$InputPaths,
-
-    [string]$EncodingType = "UTF8NoBOM",
-
-    [string[]]$TargetExtensions = @(".csv", ".conf", ".xml"),
-
-    [string[]]$ExcludePattern = @(),
-
-    [string[]]$DeleteList
+    [Parameter(Mandatory=$true)][string]$InputPaths,
+    [Parameter(Mandatory=$true)][string]$DeleteListPath,
+    [string]$EncodingType = "UTF8NoBOM", 
+    [string]$LineEnding = "LF",          
+    [string]$TargetExtensions = ".conf,.txt",
+    [string]$ExcludePattern = ""
 )
 
-# -------------------------------------------------------------
-# 1. エンコーディング設定
-# -------------------------------------------------------------
-$encObj = $null
-$encNameDisplay = ""
+$ErrorActionPreference = "Stop"
 
-switch ($EncodingType.ToUpper()) {
-    "UTF8BOM" {
-        $encObj = New-Object System.Text.UTF8Encoding($true)
-        $encNameDisplay = "UTF-8 (with BOM)"
-    }
-    "SHIFT_JIS" {
-        $encObj = [System.Text.Encoding]::GetEncoding(932)
-        $encNameDisplay = "Shift_JIS (CP932)"
-    }
-    "SJIS" {
-        $encObj = [System.Text.Encoding]::GetEncoding(932)
-        $encNameDisplay = "Shift_JIS (CP932)"
-    }
-    Default {
-        $encObj = New-Object System.Text.UTF8Encoding($false)
-        $encNameDisplay = "UTF-8 (No BOM)"
+# 定数定義 (終了コード)
+Set-Variable -Name EXIT_SUCCESS -Value 0 -Option Constant
+Set-Variable -Name EXIT_ERROR   -Value 1 -Option Constant
+Set-Variable -Name EXIT_WARNING -Value 2 -Option Constant
+
+# ---------------------------------------------------------
+# 関数定義
+# ---------------------------------------------------------
+
+function Initialize-Encoding {
+    param([string]$EncodingType)
+    
+    switch ($EncodingType) {
+        "UTF8NoBOM" { return New-Object System.Text.UTF8Encoding($false) }
+        "UTF8BOM"   { return New-Object System.Text.UTF8Encoding($true) }
+        "ShiftJIS"  { return [System.Text.Encoding]::GetEncoding(932) }
+        Default     { throw "Unknown EncodingType: $EncodingType" }
     }
 }
 
-# 拡張子の正規化（比較用）
-$validExts = $TargetExtensions | ForEach-Object { $_.Trim().ToLower() }
-
-Write-Host "=================================================="
-Write-Host " エンコーディング : $encNameDisplay"
-Write-Host " 対象拡張子       : $($validExts -join ', ')"
-if ($ExcludePattern.Count -gt 0) {
-    Write-Host " 除外パターン     : $($ExcludePattern -join ', ')"
-}
-Write-Host "=================================================="
-
-# -------------------------------------------------------------
-# 2. 共通設定（削除リスト正規化）
-# -------------------------------------------------------------
-# BATファイルから渡されたリストを正規化（大文字化）
-# 文字列として渡された場合は配列に変換
-if ($null -ne $DeleteList) {
-    if ($DeleteList -is [string]) {
-        # カンマ区切りの文字列を配列に変換（引用符を除去）
-        $DeleteList = $DeleteList -split ',' | ForEach-Object { $_.Trim('"', ' ') } | Where-Object { $_ -ne '' }
+function Get-LineEndingCharacter {
+    param([string]$LineEnding)
+    
+    switch ($LineEnding) {
+        "CRLF" { return "`r`n" }
+        "LF"   { return "`n" }
+        Default { throw "Unknown LineEnding: $LineEnding" }
     }
-    if ($DeleteList.Count -gt 0) {
-        $DeleteList = $DeleteList | ForEach-Object { $_.Trim().ToUpper() }
-        Write-Host " 除外リスト       : $($DeleteList -join ', ')" -ForegroundColor Cyan
-    } else {
-        $DeleteList = @()
-    }
-} else {
-    $DeleteList = @()
 }
 
-# -------------------------------------------------------------
-# 3. 内部関数: 単一ファイルの処理
-# -------------------------------------------------------------
-function Process-SingleFile {
-    param($TargetFile)
-
-    $fileName = [System.IO.Path]::GetFileName($TargetFile)
-    $ext      = [System.IO.Path]::GetExtension($TargetFile).ToLower()
-
-    # ■ ガード処理 1: 拡張子ホワイトリスト
-    if ($validExts -notcontains $ext) {
-        Write-Warning "スキップ [対象外拡張子]: $fileName"
-        return
+function Read-DeleteList {
+    param([string]$DeleteListPath)
+    
+    if (-not (Test-Path $DeleteListPath)) {
+        throw "Delete list not found: $DeleteListPath"
     }
+    
+    $keywords = Get-Content $DeleteListPath -Encoding Default | 
+                Where-Object { $_ -match "\S" -and $_ -notmatch "^#" } | 
+                ForEach-Object { $_.Trim() }
+    
+    return $keywords
+}
 
-    # ■ ガード処理 2: 除外パターン (ブラックリスト)
-    foreach ($ptn in $ExcludePattern) {
-        if ($fileName -like $ptn) {
-            Write-Warning "スキップ [除外パターン]: $fileName (一致: $ptn)"
-            return
+function Build-RegexPattern {
+    param([array]$Keywords)
+    
+    if ($Keywords.Count -eq 0) {
+        return $null
+    }
+    
+    $escapedKeywords = $Keywords | ForEach-Object { [Regex]::Escape($_) }
+    return $escapedKeywords -join "|"
+}
+
+function Get-TargetFiles {
+    param(
+        [string[]]$InputPaths,
+        [string[]]$ValidExtensions,
+        [string[]]$ExcludePatterns
+    )
+    
+    $targetFiles = [System.Collections.ArrayList]::new()
+    
+    foreach ($path in $InputPaths) {
+        $cleanPath = $path.Trim('"')
+        
+        if (Test-Path $cleanPath -PathType Container) {
+            $files = Get-ChildItem -Path $cleanPath -Recurse -File | 
+                     Where-Object { $ValidExtensions -contains $_.Extension }
+            [void]$targetFiles.AddRange($files)
+        }
+        elseif (Test-Path $cleanPath -PathType Leaf) {
+            [void]$targetFiles.Add((Get-Item $cleanPath))
         }
     }
+    
+    # 除外パターンの適用
+    if ($ExcludePatterns.Count -gt 0) {
+        $targetFiles = $targetFiles | Where-Object {
+            $file = $_
+            $shouldExclude = $false
+            foreach ($pattern in $ExcludePatterns) {
+                if ($file.Name -like $pattern) {
+                    $shouldExclude = $true
+                    break
+                }
+            }
+            -not $shouldExclude
+        }
+    }
+    
+    return $targetFiles
+}
 
-    # 出力先設定
-    $parentDir = [System.IO.Path]::GetDirectoryName($TargetFile)
-    $outputDir = Join-Path $parentDir "output"
-    $outputFile = Join-Path $outputDir $fileName
-
+function Process-File {
+    param(
+        [System.IO.FileInfo]$File,
+        [string]$RegexPattern,
+        [System.Text.Encoding]$Encoding,
+        [string]$LineEnding
+    )
+    
+    $outputDir = Join-Path $File.DirectoryName "output"
     if (-not (Test-Path $outputDir)) {
         New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
     }
-
-    # 読み書き実行
-    $sr = $null
-    $sw = $null
+    
+    $outputPath = Join-Path $outputDir $File.Name
+    
+    # 同名ファイルチェック
+    if (Test-Path $outputPath) {
+        Write-Output "[WARNING] Output file already exists. Skipped: $($File.Name)"
+        return $false, $true  # (success, hasWarning)
+    }
+    
     try {
-        Write-Host "処理中: $fileName ..." -NoNewline
-        
-        $sr = New-Object System.IO.StreamReader($TargetFile, $encObj)
-        $sw = New-Object System.IO.StreamWriter($outputFile, $false, $encObj)
-        $sw.NewLine = "`n" # LF固定
-
-        while ($true) {
-            $line = $sr.ReadLine()
-            if ($null -eq $line) { break }
-            
-            $u = $line.ToUpper()
-            $matched = $false
-            if ($null -ne $DeleteList -and $DeleteList.Count -gt 0) {
-                foreach ($word in $DeleteList) {
-                    if ([string]::IsNullOrWhiteSpace($word)) { continue }
-                    if ($u -like "*$word*") { $matched = $true; break }
-                }
-            }
-            if (-not $matched) { $sw.WriteLine($line) }
+        # ファイル読み込み
+        $content = Get-Content $File.FullName
+        if ($null -eq $content) {
+            $content = @()
         }
-        Write-Host " OK" -ForegroundColor Green
+        
+        # フィルタリング
+        $filteredContent = if ($null -ne $RegexPattern) {
+            $content | Where-Object { $_ -notmatch $RegexPattern }
+        } else {
+            $content
+        }
+        
+        # 書き込みテキスト生成
+        $textToWrite = if ($filteredContent.Count -gt 0) {
+            ($filteredContent -join $LineEnding) + $LineEnding
+        } else {
+            ""
+        }
+        
+        # 保存
+        [System.IO.File]::WriteAllText($outputPath, $textToWrite, $Encoding)
+        Write-Output "  -> Exported to: output\$($File.Name)"
+        
+        return $true, $false  # (success, hasWarning)
     }
     catch {
-        Write-Host " 失敗 ($($_))" -ForegroundColor Red
-    }
-    finally {
-        if ($sw) { $sw.Dispose() }
-        if ($sr) { $sr.Dispose() }
+        Write-Error "Failed to process file: $($File.Name) - $($_.Exception.Message)"
+        return $false, $false  # (success, hasWarning)
     }
 }
 
-# -------------------------------------------------------------
-# 4. メインループ
-# -------------------------------------------------------------
-foreach ($pathStr in $InputPaths) {
-    if (-not (Test-Path $pathStr)) { continue }
+# ---------------------------------------------------------
+# メイン処理
+# ---------------------------------------------------------
+
+# コンソール出力をUTF-8(BOM付)に強制し、BAT側のパイプ/リダイレクトでの文字化けを防ぐ
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($true)
+
+Write-Output "[INFO] Starting Filter-File.ps1"
+Write-Output "[INFO] Encoding Setting: $EncodingType"
+Write-Output "[INFO] LineEnding Setting: $LineEnding"
+
+try {
+    # エンコーディングと改行コードの初期化
+    $encObj = Initialize-Encoding -EncodingType $EncodingType
+    $newLineChar = Get-LineEndingCharacter -LineEnding $LineEnding
     
-    $item = Get-Item $pathStr
+    # 削除リストの読み込み
+    $deleteKeywords = Read-DeleteList -DeleteListPath $DeleteListPath
     
-    if ($item.PSIsContainer) {
-        # フォルダの場合: 対象拡張子にマッチするファイルのみ抽出して渡す
-        # ※除外パターンのチェックは Process-SingleFile 内で行う
-        $files = Get-ChildItem -Path $item.FullName -File | 
-                 Where-Object { $validExts -contains $_.Extension.ToLower() }
-        
-        foreach ($f in $files) {
-            Process-SingleFile -TargetFile $f.FullName
-        }
+    if ($deleteKeywords.Count -eq 0) {
+        Write-Output "[WARNING] Delete list is empty. No lines will be deleted."
+        $hasWarning = $true
+        $regexPattern = $null
     } else {
-        # ファイルの場合
-        Process-SingleFile -TargetFile $item.FullName
+        $regexPattern = Build-RegexPattern -Keywords $deleteKeywords
+        Write-Output "[INFO] Loaded $($deleteKeywords.Count) delete keywords (Compiled to Regex)."
     }
+    
+    # 対象ファイルの特定
+    $rawPaths = $InputPaths -split ","
+    $validExts = ($TargetExtensions -split ",").Trim()
+    $excludePats = if ($ExcludePattern) {
+        ($ExcludePattern -split ",").Trim() | Where-Object { $_ }
+    } else {
+        @()
+    }
+    
+    $targetFiles = Get-TargetFiles -InputPaths $rawPaths -ValidExtensions $validExts -ExcludePatterns $excludePats
+    
+    if ($targetFiles.Count -eq 0) {
+        Write-Output "[WARNING] No target files found to process."
+        exit $EXIT_WARNING
+    }
+    
+    Write-Output "[INFO] Target Files Count: $($targetFiles.Count)"
+    
+    # ファイル処理実行
+    $hasWarning = $false
+    foreach ($file in $targetFiles) {
+        Write-Output "Processing: $($file.FullName)"
+        
+        $success, $fileWarning = Process-File -File $file -RegexPattern $regexPattern -Encoding $encObj -LineEnding $newLineChar
+        
+        if ($fileWarning) {
+            $hasWarning = $true
+        }
+    }
+    
+    # 終了処理
+    if ($hasWarning) {
+        Write-Output "[INFO] Completed with warnings."
+        exit $EXIT_WARNING
+    } else {
+        Write-Output "[INFO] Completed successfully."
+        exit $EXIT_SUCCESS
+    }
+    
+} catch {
+    Write-Error "Fatal Error: $($_.Exception.Message)"
+    exit $EXIT_ERROR
 }
