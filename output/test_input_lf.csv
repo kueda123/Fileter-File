@@ -1,4 +1,0 @@
-hostname,ip,status
-web-server.example.com,192.168.1.40,active
-db-server.example.com,192.168.1.50,active
-app-server.example.com,192.168.1.80,active
